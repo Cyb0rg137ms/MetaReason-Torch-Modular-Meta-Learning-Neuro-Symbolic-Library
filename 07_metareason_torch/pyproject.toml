@@ -1,0 +1,18 @@
+[tool.poetry]
+name = "metareason-torch"
+version = "1.0.0"
+description = "Advanced Meta-Learning, Continual Learning, and Symbolic Reasoning modules in PyTorch"
+authors = ["Software & AI Developer"]
+readme = "README.md"
+packages = [{include = "metareason"}]
+
+[tool.poetry.dependencies]
+python = "^3.9"
+torch = ">=2.0.0"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^7.0.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
