@@ -40,7 +40,7 @@ class ElasticWeightConsolidation:
         for x, y in dataset:
             self.model.zero_grad()
             pred = self.model(x.unsqueeze(0))
-            loss = loss_fn(pred, y.unsqueeze(0))
+            loss = loss_fn(pred, y)
             loss.backward()
             
             # Accumulate squared gradients
