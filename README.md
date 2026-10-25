@@ -1,60 +1,21 @@
-# MetaReason-Torch
+# MetaReason-Torch: meta-learning with verifiable neurosymbolic reasoning in PyTorch
 
-**Meta-learning, continual learning and *verified* neurosymbolic reasoning in PyTorch.**
+[![CI](https://github.com/Cyb0rg137ms/MetaReason-Torch-Modular-Meta-Learning-Neuro-Symbolic-Library/actions/workflows/ci.yml/badge.svg)](https://github.com/Cyb0rg137ms/MetaReason-Torch-Modular-Meta-Learning-Neuro-Symbolic-Library/actions/workflows/ci.yml)
+![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-blue)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-MetaReason-Torch combines gradient-based meta-learning with symbolic checks that can say *where* a chain of reasoning went wrong. It covers:
+MAML, FOMAML, ProtoNets, ANIL and EWC behind one typed PyTorch API, plus a step verifier that reports the first inconsistent reasoning step and a minimal conflict.
 
-- **Meta-learning:**
-  - MAML (second-order) and FOMAML for **any** `nn.Module`, built on `torch.func.functional_call`.
-  - Prototypical Networks and ANIL.
-- **Continual learning:** EWC with an empirical or exact Fisher, multiple tasks, and online EWC.
-- **Neurosymbolic step verification:**
-  - Each step of a reasoning trace is compiled to CNF and decided by an exact solver.
-  - The *first failing step* is reported, along with a minimal unsatisfiable core that names the conflicting earlier steps and problem constraints and the step to restart from.
-- **Verified task amplification:**
-  - ARC-style grid tasks get 8 dihedral transforms × colour permutations.
-  - Multiple-choice tasks get option permutations.
-  - A variant is kept only if inverting the transform recovers the gold answer exactly.
-- **Symbolic substrate:**
-  - A Datalog engine with semi-naive forward chaining and SLD backward chaining that supports recursion and non-ground queries.
-  - Neural Module Networks with a module registry.
+![Measured benchmark results](docs/assets/bench.png)
 
-Architecture diagrams are in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), and known limitations are in [docs/LIMITATIONS.md](docs/LIMITATIONS.md).
+*Figure: rendered by `python scripts/plot_bench.py` from [`docs/assets/bench.json`](docs/assets/bench.json), the raw output of `metareason bench all --config examples/bench.toml --json` (seed 0, CPU).*
 
-> **CI:** GitHub Actions workflow at `.github/workflows/ci.yml`.
+## Why it matters
 
-## Install
-```bash
-pip install torch --index-url https://download.pytorch.org/whl/cpu   # or your CUDA/ROCm build
-pip install -e ".[dev]"
-```
+Meta-learning and neurosymbolic reasoning are usually studied in separate codebases. This library puts gradient-based meta-learning (MAML, FOMAML, ProtoNets, ANIL), continual learning (EWC) and *checkable* symbolic reasoning behind one typed PyTorch API. Each reasoning step can be compiled to CNF and decided exactly, so a failure comes with the first failing step and a minimal conflict instead of a vague score. Every method is tested against a hand-computed or brute-force reference (74 tests plus the plot test).
 
-## Quickstart
-```python
-import torch
-from torch import nn
-from metareason import MAML, StepVerifier
-from metareason.tasks import SinusoidTasks
+## Key results
 
-model = nn.Sequential(nn.Linear(1, 40), nn.ReLU(), nn.Linear(40, 1))
-maml = MAML(model, inner_lr=0.01, inner_steps=1)  # first_order=True -> FOMAML
-opt = torch.optim.Adam(model.parameters(), 1e-3)
-for _ in range(100):
-    maml.meta_step(SinusoidTasks().batch(8), opt)
-
-v = StepVerifier([[1, 2], [-1, 3], [-3, -2]])  # CNF problem
-r = v.verify(["Assume x2 = true.", "Then x3 = false.", "Also x1 = true."])
-print(r.diagnosis.explain())
-# step 3 is inconsistent with step(s) 2 and problem constraint(s) [2];
-# minimal conflict [[-1, 3], [-3], [1]]; restart from step 2.
-```
-```bash
-metareason verify examples/trace.json          # exit 1 + diagnosis on an inconsistent trace
-metareason bench all --config examples/bench.toml
-```
-More examples are in [`examples/`](examples).
-
-## Measured results
 These are the results of `metareason bench all` with seed 0 and the defaults in `examples/bench.toml`. The run was on a CPU-only Intel Xeon VM with PyTorch 2.14.1 and took 32 s wall-clock. Confidence intervals are Student-t 95%.
 
 **Sinusoid regression** (10-shot, 2000 meta-iterations, meta-batch 8, 300 held-out tasks; MSE on query points after adaptation):
@@ -84,7 +45,95 @@ These are the results of `metareason bench all` with seed 0 and the defaults in 
 
 The ordering MAML > FOMAML > pre-training and ProtoNet > ANIL matches the literature qualitatively. These are synthetic tasks, so they are not comparable to Omniglot or miniImageNet numbers.
 
-## Bugs fixed relative to 1.0
+Reproduce:
+
+```bash
+pip install torch --index-url https://download.pytorch.org/whl/cpu && pip install -e ".[dev]"
+metareason bench all --config examples/bench.toml --json   # about 30 s on CPU
+python scripts/plot_bench.py docs/assets/bench.json docs/assets/bench.png
+```
+
+## Architecture
+
+```mermaid
+flowchart LR
+    subgraph meta[metareason.meta]
+        MAML["MAML / FOMAML<br/>functional_call, any nn.Module"]
+        PROTO["PrototypicalNetwork<br/>label-indexed prototypes"]
+        ANIL["ANIL<br/>head-only inner loop"]
+        AMP["amplify<br/>verified dihedral x colour / option permutations"]
+    end
+    subgraph continual[metareason.continual]
+        EWC["EWC<br/>empirical / exact Fisher, multi-task, online"]
+    end
+    subgraph symbolic[metareason.symbolic]
+        RULES["RuleEngine<br/>semi-naive forward + SLD backward"]
+        NMN["NeuralModuleNetwork<br/>program -> module registry"]
+        SAT["sat: DPLL + MUS core"]
+        VER["StepVerifier<br/>first failing step + diagnosis"]
+    end
+    TASKS["tasks: seeded Sinusoid / Gaussian N-way"] --> MAML & PROTO & ANIL
+    VER --> SAT
+    BENCH["benchmarks + BenchConfig (TOML)"] --> TASKS & EWC
+    CLI["metareason CLI: bench | verify"] --> BENCH & VER
+```
+
+More diagrams: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
+## 60-second quickstart
+
+```bash
+pip install torch --index-url https://download.pytorch.org/whl/cpu   # or your CUDA/ROCm build
+pip install -e ".[dev]"
+metareason bench all --quick
+metareason verify examples/trace.json          # exit 1 + diagnosis on an inconsistent trace
+```
+
+## Usage
+
+```python
+import torch
+from torch import nn
+from metareason import MAML, StepVerifier
+from metareason.tasks import SinusoidTasks
+
+model = nn.Sequential(nn.Linear(1, 40), nn.ReLU(), nn.Linear(40, 1))
+maml = MAML(model, inner_lr=0.01, inner_steps=1)  # first_order=True -> FOMAML
+opt = torch.optim.Adam(model.parameters(), 1e-3)
+for _ in range(100):
+    maml.meta_step(SinusoidTasks().batch(8), opt)
+
+v = StepVerifier([[1, 2], [-1, 3], [-3, -2]])  # CNF problem
+r = v.verify(["Assume x2 = true.", "Then x3 = false.", "Also x1 = true."])
+print(r.diagnosis.explain())
+# step 3 is inconsistent with step(s) 2 and problem constraint(s) [2];
+# minimal conflict [[-1, 3], [-3], [1]]; restart from step 2.
+```
+
+More examples are in [`examples/`](examples); a multi-task experiment is in `experiments/multi_task.py`.
+
+Development:
+
+```bash
+ruff check . && ruff format --check . && mypy metareason && pytest
+```
+There are 74 tests. They cover:
+- MAML against hand-computed SGD and finite-difference second-order gradients
+- SAT against brute force on 300 random formulas, and minimality of the unsat core
+- forward and backward chaining agreement on random programs
+- the amplification inverse round-trip
+- the CLI
+
+## Design decisions and trade-offs
+
+- **Functional MAML (`torch.func.functional_call`)** works for any `nn.Module` and supports exact second-order gradients. The cost is roughly 1.4x FOMAML per meta-iteration in the table above; `first_order=True` trades that for higher error.
+- **Exact DPLL plus a minimal unsatisfiable core** in the step verifier. Diagnoses are exact and minimal, at the cost of scaling only to the small CNFs typical of reasoning traces.
+- **Amplification keeps a variant only if inverting the transform recovers the gold answer exactly**, which trades dataset size for zero label noise.
+- **SLD backward chaining with loop checking** instead of tabling: simple and correct on recursive programs, but potentially exponential; `forward_chain` is the materialising alternative.
+- **Synthetic, seeded benchmarks** so every number is reproducible in about 30 s on a CPU; they are not comparable to Omniglot or miniImageNet.
+
+Changes relative to 1.0:
+
 - **ANIL:** the feature extractor ran under `torch.no_grad()`, so the outer loop never trained it.
 - **Rule engine:** backward chaining could not prove recursive goals unless `forward_chain()` had already run, because body variables were only bound against materialised facts. Rule variables were also never renamed apart. The engine is now SLD resolution with loop checking.
 - **ProtoNet:**
@@ -102,19 +151,31 @@ The ordering MAML > FOMAML > pre-training and ProtoNet > ANIL matches the litera
   - It now has a generic functional implementation with k steps, a first-order mode and `meta_step`.
 - **Removed:** fabricated `BENCHMARK_RESULTS.md`, such as the Omniglot numbers that were never measured.
 
-## Development
-```bash
-ruff check . && ruff format --check . && mypy metareason && pytest
-```
-There are 74 tests. They cover:
-- MAML against hand-computed SGD and finite-difference second-order gradients
-- SAT against brute force on 300 random formulas, and minimality of the unsat core
-- forward and backward chaining agreement on random programs
-- the amplification inverse round-trip
-- the CLI
-
-## Credits
 The step verifier and amplification modules are clean re-implementations of ideas from the author's research prototypes (CNF-gated step verification with retry; verified dihedral/colour augmentation of ARC tasks). Method references: Finn et al. 2017 (MAML), Snell et al. 2017 (ProtoNets), Raghu et al. 2020 (ANIL), Kirkpatrick et al. 2017 (EWC), Schwarz et al. 2018 (online EWC), Andreas et al. 2016 (NMN).
 
+## Limitations and roadmap
+
+- Benchmarks are synthetic; no Omniglot/miniImageNet results are reported.
+- EWC needed λ of 1e6–1e7 on this saturated two-task benchmark.
+- The step verifier checks consistency, not correctness, and parses steps with regexes.
+- DPLL only; use a CDCL solver for large CNFs.
+- CPU-only CI; GPU paths are standard PyTorch but untested.
+
+Roadmap: a CDCL backend option, tabled backward chaining, and real few-shot datasets (Omniglot) with reported numbers once measured.
+
+Full list: [docs/LIMITATIONS.md](docs/LIMITATIONS.md).
+
+## Citation
+
+```bibtex
+@software{metareason2026,
+  author = {Cyb0rg137ms},
+  title  = {MetaReason-Torch: meta-learning with verifiable neurosymbolic reasoning in PyTorch},
+  year   = {2026},
+  url    = {https://github.com/Cyb0rg137ms/MetaReason-Torch-Modular-Meta-Learning-Neuro-Symbolic-Library}
+}
+```
+
 ## License
-MIT
+
+MIT, see [LICENSE](LICENSE).
