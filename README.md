@@ -21,7 +21,7 @@ MetaReason-Torch combines gradient-based meta-learning with symbolic checks that
 
 Architecture diagrams are in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), and known limitations are in [docs/LIMITATIONS.md](docs/LIMITATIONS.md).
 
-> **CI:** the workflow lives in `ci/github-actions-ci.yml`. Move it to `.github/workflows/ci.yml` to enable GitHub Actions. The push token lacked the `workflow` scope.
+> **CI:** GitHub Actions workflow at `.github/workflows/ci.yml`.
 
 ## Install
 ```bash
